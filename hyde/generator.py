@@ -306,7 +306,7 @@ class Generator(object):
 
     def __generate_resource__(self, resource, incremental=False):
         self.refresh_config()
-        if not resource.is_processable:
+        if not (resource.is_processable and getattr(getattr(resource, "meta", None), "is_processable", True)):
             logger.debug("Skipping [%s]", resource)
             return
         if incremental and not self.has_resource_changed(resource):
