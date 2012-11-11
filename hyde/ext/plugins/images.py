@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 Contains classes to handle images related things
-
-# Requires PIL
 """
+import subprocess
+import re
+import glob
+import os
 
 from hyde.plugin import Plugin
 from hyde.fs import File, Folder
 
-import re
-import Image
-import glob
-import os
+try:
+    import Image, ImageFile
+except:
+    pass
 
 class ImageSizerPlugin(Plugin):
     """
@@ -176,6 +178,9 @@ def thumb_scale_size(orig_width, orig_height, width, height):
 
     return width, height
 
+def shell(*args):
+    p = subprocess.Popen([str(a) for a in args], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return p.communicate()
 
 class ImageThumbnailsPlugin(Plugin):
     """
@@ -225,10 +230,7 @@ class ImageThumbnailsPlugin(Plugin):
     def __init__(self, site):
         super(ImageThumbnailsPlugin, self).__init__(site)
 
-    def thumb(self, resource, width, height, prefix, crop_type, preserve_orientation=False):
-        """
-        Generate a thumbnail for the given image
-        """
+    def _create_path(self, resource, prefix):
         name = os.path.basename(resource.get_relative_deploy_path())
         # don't make thumbnails for thumbnails
         if name.startswith(prefix):
@@ -244,8 +246,37 @@ class ImageThumbnailsPlugin(Plugin):
         res.set_relative_deploy_path(res.get_relative_deploy_path().replace('.thumbnails/', '', 1))
 
         target.parent.make()
+
         if os.path.exists(target.path) and os.path.getmtime(resource.path) <= os.path.getmtime(target.path):
             return
+        return target
+
+    def _sips_thumb(self, resource, width, height, prefix, crop_type, preserve_orientation=False):
+        target = self._create_path(resource, prefix)
+        if target is None:
+            return
+
+        out, _ = shell("sips", "-g", "pixelWidth", "-g", "pixelHeight",
+                resource.path)
+
+        m = re.search("pixelWidth\s*:\s*(\d+)\n\s*pixelHeight\s*:\s*(\d+)", out)
+
+        if m:
+            img_width, img_height = int(m.group(1)), int(m.group(2))
+            resize_width, resize_height = thumb_scale_size(img_width,
+                    img_height, width, height)
+
+            shell("sips", "-z", resize_height, resize_width,
+                    resource.path, "--out", target.path, "-quality", "draft")
+
+    def _pil_thumb(self, resource, width, height, prefix, crop_type, preserve_orientation=False):
+        """
+        Generate a thumbnail for the given image using PIL
+        """
+        target = self._create_path(resource, prefix)
+        if target is None:
+            return
+
         self.logger.debug("Making thumbnail for [%s]" % resource)
 
         im = Image.open(resource.path)
@@ -257,7 +288,6 @@ class ImageThumbnailsPlugin(Plugin):
           width, height = height, width
 
         resize_width, resize_height = thumb_scale_size(im.size[0], im.size[1], width, height)
-
         self.logger.debug("Resize to: %d,%d" % (resize_width, resize_height))
         im = im.resize((resize_width, resize_height), Image.ANTIALIAS)
         if width is not None and height is not None:
@@ -271,11 +301,21 @@ class ImageThumbnailsPlugin(Plugin):
             im = im.crop((shiftx, shifty, width + shiftx, height + shifty))
             im.load()
 
-        options = dict(optimize=True)
+        options = dict(optimize=True, progressive=True)
         if format == "JPEG":
           options['quality'] = 75
 
-        im.save(target.path, **options)
+        try:
+            im.save(target.path, **options)
+        except IOError:
+            ImageFile.MAXBLOCK = im.size[0] * im.size[1]
+            im.save(target.path, **options)
+
+
+    def _run_engine(self, engine, *args, **kwargs):
+        engines = {"pil": self._pil_thumb, "sips": self._sips_thumb}
+        assert engine in engines
+        engines[engine](*args, **kwargs)
 
     def begin_site(self):
         """
@@ -288,7 +328,9 @@ class ImageThumbnailsPlugin(Plugin):
                      "larger": None,
                      "smaller": None,
                      "crop_type": "topleft",
-                     "prefix": 'thumb_'}
+                     "prefix": 'thumb_',
+                     "engine": "pil"}
+
         if hasattr(config, 'thumbnails'):
             defaults.update(config.thumbnails)
 
@@ -304,6 +346,8 @@ class ImageThumbnailsPlugin(Plugin):
                     width = th.width if hasattr(th, 'width') else defaults['width']
                     larger = th.larger if hasattr(th, 'larger') else defaults['larger']
                     smaller = th.smaller if hasattr(th, 'smaller') else defaults['smaller']
+                    engine = th.engine if hasattr(th, 'engine') else defaults['engine']
+
                     crop_type = th.crop_type if hasattr(th, 'crop_type') else defaults['crop_type']
                     if crop_type not in ["topleft", "center", "bottomright"]:
                         self.logger.error("Unknown crop_type defined for node [%s]" % node)
@@ -328,4 +372,4 @@ class ImageThumbnailsPlugin(Plugin):
 
                     for resource in node.resources:
                         if match_includes(resource.path):
-                            self.thumb(resource, dim1, dim2, prefix, crop_type, preserve_orientation)
+                            self._run_engine(engine, resource, dim1, dim2, prefix, crop_type, preserve_orientation)
