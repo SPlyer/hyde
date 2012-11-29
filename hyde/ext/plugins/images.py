@@ -233,7 +233,7 @@ class ImageThumbnailsPlugin(Plugin):
     def _create_path(self, resource, prefix):
         name = os.path.basename(resource.get_relative_deploy_path())
         # don't make thumbnails for thumbnails
-        if name.startswith(prefix):
+        if name.startswith(prefix) and prefix:
             return
         # Prepare path, make all thumnails in single place(content/.thumbnails)
         # for simple maintenance but keep original deploy path to preserve
@@ -252,6 +252,7 @@ class ImageThumbnailsPlugin(Plugin):
         return target
 
     def _sips_thumb(self, resource, width, height, prefix, crop_type, preserve_orientation=False):
+
         target = self._create_path(resource, prefix)
         if target is None:
             return
@@ -267,7 +268,7 @@ class ImageThumbnailsPlugin(Plugin):
                     img_height, width, height)
 
             shell("sips", "-z", resize_height, resize_width,
-                    resource.path, "--out", target.path, "-quality", "draft")
+                    resource.path, "--out", target.path)
 
     def _pil_thumb(self, resource, width, height, prefix, crop_type, preserve_orientation=False):
         """
@@ -347,8 +348,12 @@ class ImageThumbnailsPlugin(Plugin):
                     larger = th.larger if hasattr(th, 'larger') else defaults['larger']
                     smaller = th.smaller if hasattr(th, 'smaller') else defaults['smaller']
                     engine = th.engine if hasattr(th, 'engine') else defaults['engine']
-
                     crop_type = th.crop_type if hasattr(th, 'crop_type') else defaults['crop_type']
+
+
+                    if prefix is None:
+                        prefix = ''
+
                     if crop_type not in ["topleft", "center", "bottomright"]:
                         self.logger.error("Unknown crop_type defined for node [%s]" % node)
                         continue
