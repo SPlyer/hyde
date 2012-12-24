@@ -230,11 +230,16 @@ class ImageThumbnailsPlugin(Plugin):
     def __init__(self, site):
         super(ImageThumbnailsPlugin, self).__init__(site)
 
-    def _create_path(self, resource, prefix):
+    def _create_path(self, resource, prefix, suffix):
         name = os.path.basename(resource.get_relative_deploy_path())
         # don't make thumbnails for thumbnails
         if name.startswith(prefix) and prefix:
             return
+
+        if suffix:
+            n, e = os.path.splitext(name)
+            name = "%s%s%s" % (n, suffix, e)
+
         # Prepare path, make all thumnails in single place(content/.thumbnails)
         # for simple maintenance but keep original deploy path to preserve
         # naming logic in generated site
@@ -251,9 +256,9 @@ class ImageThumbnailsPlugin(Plugin):
             return
         return target
 
-    def _sips_thumb(self, resource, width, height, prefix, crop_type, preserve_orientation=False):
+    def _sips_thumb(self, resource, width, height, prefix, suffix, crop_type, preserve_orientation=False):
 
-        target = self._create_path(resource, prefix)
+        target = self._create_path(resource, prefix, suffix)
         if target is None:
             return
 
@@ -268,9 +273,9 @@ class ImageThumbnailsPlugin(Plugin):
                     img_height, width, height)
 
             shell("sips", "-z", resize_height, resize_width,
-                    resource.path, "--out", target.path)
+                    resource.path, "--out", target.path, "--setProperty", "formatOptions", "60")
 
-    def _pil_thumb(self, resource, width, height, prefix, crop_type, preserve_orientation=False):
+    def _pil_thumb(self, resource, width, height, prefix, suffix, crop_type, preserve_orientation=False):
         """
         Generate a thumbnail for the given image using PIL
         """
@@ -330,6 +335,7 @@ class ImageThumbnailsPlugin(Plugin):
                      "smaller": None,
                      "crop_type": "topleft",
                      "prefix": 'thumb_',
+                     "suffix": "",
                      "engine": "pil"}
 
         if hasattr(config, 'thumbnails'):
@@ -343,6 +349,7 @@ class ImageThumbnailsPlugin(Plugin):
                         continue
                     include = th.include
                     prefix = th.prefix if hasattr(th, 'prefix') else defaults['prefix']
+                    suffix = th.suffix if hasattr(th, 'suffix') else defaults['suffix']
                     height = th.height if hasattr(th, 'height') else defaults['height']
                     width = th.width if hasattr(th, 'width') else defaults['width']
                     larger = th.larger if hasattr(th, 'larger') else defaults['larger']
@@ -353,6 +360,9 @@ class ImageThumbnailsPlugin(Plugin):
 
                     if prefix is None:
                         prefix = ''
+
+                    if suffix is None:
+                        suffix = ''
 
                     if crop_type not in ["topleft", "center", "bottomright"]:
                         self.logger.error("Unknown crop_type defined for node [%s]" % node)
@@ -377,4 +387,4 @@ class ImageThumbnailsPlugin(Plugin):
 
                     for resource in node.resources:
                         if match_includes(resource.path):
-                            self._run_engine(engine, resource, dim1, dim2, prefix, crop_type, preserve_orientation)
+                            self._run_engine(engine, resource, dim1, dim2, prefix, suffix, crop_type, preserve_orientation)
