@@ -3,6 +3,7 @@
 Parses & holds information about the site to be generated.
 """
 import os
+import re
 import fnmatch
 import sys
 import urlparse
@@ -21,7 +22,37 @@ def path_normalized(f):
         return f(self, unicode(path).replace('/', os.sep))
     return wrapper
 
+
 logger = getLoggerWithNullHandler('hyde.engine')
+
+
+SCHEME_RE = re.compile(r'(\w+?://)(.*)')
+
+
+def split_scheme(url):
+    m = SCHEME_RE.match(url)
+    if m:
+        return m.group(1), m.group(2)
+    return "", url
+
+
+def build_url(base, path, safe=None):
+    """
+    Returns the content url by appending the base url
+    with the given path. The return value is url encoded.
+    """
+    scheme, url = split_scheme(base)
+    fpath = Folder(url).child(path).replace(os.sep, '/').encode("utf-8")
+    if safe is not None:
+        fpath = quote(fpath, safe)
+    else:
+        fpath = quote(fpath)
+
+    if fpath.startswith("/"):
+        return fpath
+    else:
+        return scheme + fpath
+
 
 class Processable(object):
     """
@@ -51,7 +82,7 @@ class Processable(object):
         Gets the source path of this node.
         """
         return self.source.path
-        
+
     def get_relative_deploy_path(self):
         """
         Gets the path where the file will be created
@@ -109,7 +140,7 @@ class Resource(Processable):
         Gets the path relative to the root folder (Content)
         """
         return self.source_file.get_relative_path(self.node.root.source_folder)
-    
+
     @property
     def slug(self):
         #TODO: Add a more sophisticated slugify method
@@ -420,26 +451,14 @@ class Site(object):
         Returns the content url by appending the base url from the config
         with the given path. The return value is url encoded.
         """
-        fpath = Folder(self.config.base_url) \
-                        .child(path) \
-                        .replace(os.sep, '/').encode("utf-8")
-        if safe is not None:
-            return quote(fpath, safe)
-        else:
-            return quote(fpath)
+        return build_url(self.config.base_url, path, safe)
 
     def media_url(self, path, safe=None):
         """
         Returns the media url by appending the media base url from the config
         with the given path. The return value is url encoded.
         """
-        fpath = Folder(self.config.media_url) \
-                        .child(path) \
-                        .replace(os.sep, '/').encode("utf-8")
-        if safe is not None:
-            return quote(fpath, safe)
-        else:
-            return quote(fpath)
+        return build_url(self.config.media_url, path, safe)
 
     def full_url(self, path, safe=None):
         """
